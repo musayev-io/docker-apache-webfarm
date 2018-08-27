@@ -1,206 +1,72 @@
-# Docker Notes
+# Apache Web Farm
 
-## Documentation
+## Goal
 
--   [Docker Docs](https://docs.docker.com/reference/)
--   Passing dashes in between multi-parameter commands will open manual pages for that specific command.
-    -   `man docker-network-create`
+Create two Docker containers servicing a simple HTTP page that will be accessible using NGINX as a Reverse Proxy on the host over port 80.
 
-## Dockerfile Directives
+## Docker Setup
 
-[Dockerfile Reference](https://docs.docker.com/engine/reference/builder/#stopsignal)
+### 1\. Create Docker image using Dockerfile
 
--   **ADD**
+`docker image build -t "apache-webfarm:master" .`
 
-    -   _PURPOSE_: Copies files from _src_ and adds them to the filesystem's _**IMAGE**_ @ _dest_
-    -   _dest_ is an absolute path, or a path relative to _WORKDIR_
-    -   All new files and directories are created with a UID and GID of 0 (root), unless the optional `--chown` flag specifies a given username, groupname, or UID/GID combination
-    -   **ADD** has two forms:
-        1.  `ADD [--chown=<user>:<group>] <src>... <dest>`
-        2.  `ADD [--chown=<user>:<group>] ["<src>",... "<dest>"]`
-            -   _This form is required for paths containing whitespace_
+### 2\. Create Private Network
 
--   **COPY**
+`docker network create -d bridge --subnet 10.1.4.0/24 --gateway 10.1.4.1 --ip-range=10.1.4.0/24 apache-webfarm`
 
-    -   _PURPOSE_: Copies files from _src_ and adds them to the filesystem's _**CONTAINER**_ @ _dest_
-    -   _dest_ is an absolute path, or a path relative to _WORKDIR_
-    -   All new files and directories are created with a UID and GID of 0 (root), unless the optional `--chown` flag specifies a given username, groupname, or UID/GID combination
-    -   **COPY** has two forms:
-        1.  `COPY [--chown=<user>:<group>] <src>... <dest>`
-        2.  `COPY [--chown=<user>:<group>] ["<src>",... "<dest>"]`
-            -   _This form is required for paths containing whitespace_
+### 3\. Deploy two Docker containers
 
--   **CMD**
+1. `docker run -itd --name apache-webfarm-1 --net apache-webfarm --ip 10.1.4.100 -p 8080:80 -v /path/to/docker-www:/var/www/html apache-webfarm:master /bin/bash`
 
-    -   _PURPOSE_: Provides defaults for an executing container. These defaults can include an executable, or they can omit the executable, in which case you must specify an **ENTRYPOINT** instruction as well.
-    -   CMD has three forms:
-        1.  `CMD ["executable", "args1", "args2"]` (_exec_ form, preferred)
-        2.  `CMD ["param1","param2"]` (as _default parameters to ENTRYPOINT_)
-        3.  `command param1 param2`
+2. `docker run -itd --name apache-webfarm-2 --net apache-webfarm --ip 10.1.4.101 -p 8081:80 -v /path/to/docker-www:/var/www/html apache-webfarm:master /bin/bash`
 
+  - Replace **-v /path/to/docker-www** with your absolute local path to docker-www for both commands.
 
--   **ENTRYPOINT**
+    - **docker-www** houses your simple HTTP page and can be found in this repository
 
-    -   _PURPOSE_: Allows you to configure a container that will run as an executable.
-    -   Will overwrite all elements specified with **CMD**. Can be overwritten by passing the `-entrypoint` flag when executing `docker run ...`.
-    -   Two forms:
-        1.  `ENTRYPOINT ["executable", "param1", "param2"]` (_exec_ form, preferred)
-        2.  `ENTRYPOINT command param1 param2` (_shell_ form)
+## Host Setup
 
+### 1\. Install NGINX
 
--   **ENV**
+- This will depend on your host's distribution
 
-    -   _PURPOSE_: Sets an environment variable for all future builds, which will affect all users.
-    -   **ENV** has two forms:
-        1.  `ENV myDog Rex The Dog`
-        2.  `ENV myName="John Doe" myDog=Rex\ The\ Dog" myCat=fluffy`
-            -   If you're passing multiple environment variables, you need to use **=**
+### 2\. Configure NGINX
 
--   **EXPOSE**
+- Create **default.conf** NGINX page under **/etc/nginx/sites-available/**
 
-    -   _PURPOSE_: Tells the container to listen on the specified network port(s) at runtime.
-    -   For security reasons, you need to explicitly state with an **EXPOSE** statement which ports and protocols you want to redirect.
-        -   **EXPOSE** acts as a form of _documentation_ for what ports are intended to be redirected. Port redirection is actually applied by the `-p` or `-P` flag:
-            -   `-p`: Will redirect specific ports
-                -   Example: `-p 443:443/tcp -p 443/443/udp`
-                -   Passing this in your `docker run ...` statement will override **EXPOSE**
-            -   `-P`: Will redirect all posts explicity stated within your Dockerfile using **EXPOSE**
-                -   Downside of using `-P` is it will use ephemeral port ranges for redirection. This means UDP and TCP ports will most likely be different.
-    -   **EXPOSE** has one form:
-        -   `EXPOSE <port> [<port>/<protocol>...]`
+  - _If you're using Mac for development and installed NGINX via Brew, you'll need to create the site-available/enabled directories manually. You can do so by issuing_ `mkdir /usr/local/etc/nginx/site-{available,enabled}`
 
--   **FROM**
+```
+  upstream apache-webfarm {
 
-    -   PUROSE: References the base image the Dockerfile will reference to instantiate your container
-    -   FROM has three forms:
-        1.  `FROM <image> [AS <name>]`
-        2.  `FROM <image>[:<tag>] [AS <name>]`
-        3.  `FROM <image>[@<digest>] [AS <name>]`
+    server 192.168.1.114:8080
+    server 192.168.1.114:8081
 
--   **LABEL**
+  }
 
-    -   _PURPOSE_: Adds ≥1 metadata to an image via dictionary data set.
-    -   Labels included in the **FROM** image are inherited. If multiple labels exist with different values, the most recent one will apply.
+  server {
 
+    listen *:80;
 
--   **RUN**
+    server_name 192.168.1.35;
+    index index.html index.htm index.php
 
-    -   _PURPOSE_: Will execute commands in a new layer on top of the current image commit the results.
-    -   There can only be ONE **CMD** instruction in a Dockerfile. If > 1 are listed, only the last **CMD** will take effect.
-    -   **RUN** has two forms:
-        1.  `RUN ["executable", "arg1", "arg2"]` (_exec_ , preferred)
-                 `RUN ["c:\\windows\\system32\\tasklist.exe"]`
-        2.  `RUN <command>` (_shell_ form)
-            -   Runs in shell. Linux: `/bin/sh -c` | Windows: `cmd /S /C`  
+    access_log /var/log/nginx/localweb.log;
+    error_log /var/log/nginx/localerr.log;
 
--   **USER**
+    location / {
 
-    -   _PURPOSE_: Inherits the context of the user (and group) in the image instantiation for any **RUN**, **CMD**, or **ENTRYPOINT** commands that follow.
-    -   Commands not specified to run as a particular user will be run as Root during image instantiation.
-    -   **USER** has one Form: `USER <user>[:<group>]` or `USER <UID>[:<GID>]`
+      proxy_pass http://apache-webfarm
 
--   **VOLUME**
+    }
 
-    -   _PURPOSE_: Creates a mount point with the specified name and marks it as holding externally mounted volumes from other hosts or containers.
-    -   Notes:
-        -   If mounting on Windows, destination must be non-existing or empty directory or a drive other than **C:**
-        -   Due to portable nature of containers, you must specify the mountpoint when you create or run the container using `-v` or `--mount`.
-            -   More information on [Using Volumes](https://docs.docker.com/storage/volumes/)
-    -   **VOLUME** has two forms:
+  }
+```
 
-        1.  `VOLUME /var/log /var/db/`
-        2.  `VOLUME ["var/log", "/var/db"]`
+- Change `server 192.168.1.114` to your host's IP address (not your container)
 
--   **WORKDIR**
+### 3\. Reload NGINX
 
-    -   _PURPOSE_: Sets the working directory for any **RUN**, **CMD**, **ENTRYPOINT**, **COPY**, and **ADD** instructions.
-    -   If **WORKDIR** doesn't exist, it will be created.
-    -   Multiple **WORKDIR** statements can be used in a Dockerfile (_read from top down_)
+- This will depend on your host's distribution.
 
-### General Caveats
-
--   _Exec_ form will be parsed as JSON, so you must use double quotation marks **""**.
--   It is necessary to escape backslashes in **exec** mode.
-
-## Docker Images
-
--   Download an Image
-
-    -   `docker pull <image_name>[:tag]`
-
--   Remove an Image
-
-    -   `docker rmi <image_name>`
-    -   `docker rmi <image_id>`
-        -   Will remove all images with the same image_id
-
--   Commit an Image
-
-    -   `docker commit container_name centos:custom`
-
--   Save an Image
-
-    -   `docker save --output centos.custom.tar centos:latest`
-
--   Load an Image
-
-    -   `docker load --input centos.custom.tar.gz`
-
--   View Image History
-
-        -   `docker history centos:custom`
-
-    ## Naming Containers
-
-        -   `docker run -d --name container_name ubuntu:latest`
-        -   `docker rename sneaky_cauldron Mischief_Managed`
-
-    ## Building Image from Dockefile
-
-        -   `docker image built -t "repository:container_name" .`
-            -   `-t` Adds a tag to your image. `.` tells Docker to use the Dockerfile found in the current directory.
-
-### Commit Changes to a Docker Image
-
-    -   `docker commit [OPTIONS] CONTAINER [REPOSITORY[:TAG]]`
-        -   OPTIONS:
-            -   \--author, -a
-            -   \--change, -c
-            -   \--message, -m
-            -   \--pause, -p
-
-## Docker Networking
-
-### Create a Bridge Adapter
-
--   `docker network create -d bridge --subnet 10.1.0.0/16 --gateway 10.1.0.1 --ip-range=10.1.4.0/24 sample_bridge_1`
-    -   `--ip-range`: Containers with this network will be leased an unassigned IP from this ranges
-
-### Applying the Bridge with Specific IP
-
--   `docker run -it --name NAME --net sample_bridge_1 --ip 10.1.4.10 centos:latest /bin/bash`
-
-### Delete a Bridge Adapter
-
--   `docker network rm  sample_bridge_1`
-
-### Redirecting Port
-
--   `docker run -itd -p 80 nginx:latest`
-
-    -   Will map port 80/TCP to an ephemeral port on all of host's interfaces
-
--   `docker run -itd -p 8080:80 nginx:latest`
-
-    -   Will map port 80/TCP to 8080/TCP on all of host's interfaces
-
--   `docker run -itd -p 127.0.0.1:8080:80 nginx:latest`
-    -   Will map port 80/TCP to 8080/TCP only on host's localhost interface
-
-## Docker Monitoring
-
-### Event Filtering
-
--   `docker events --filter | -f event=attach`
--   `docker events -f event=start -f event=stop --since 10m`
-    -   More Event Filters can be found on [Docker :: Events](https://docs.docker.com/engine/reference/commandline/events/#extended-description)
+  - If you're on a Mac, this can be achieved with `sudo nginx -s reload`

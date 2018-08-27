@@ -15,3 +15,6 @@ RUN echo $' \n\
 # Start HTTP and SSH Daemon \n\
 /sbin/service httpd start \n\
 /sbin/service sshd start' >> ~/.bashrc
+
+
+VOLUME /var/www/html
